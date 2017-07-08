@@ -1,5 +1,6 @@
 package ru.arseny.service.impl;
 
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import ru.arseny.model.Event;
 import ru.arseny.service.EventService;
@@ -68,10 +69,7 @@ public class EventServiceImpl implements EventService {
     private void addToMinuteQueue(ZonedDateTime time) {
         Event event = new Event(time, 1L);
         synchronized (minuteEvents) {
-            while (!minuteEvents.isEmpty() &&
-                    ChronoUnit.MINUTES.between(minuteEvents.getFirst().getTime(), event.getTime()) > 0) {
-                minuteEvents.removeFirst();
-            }
+            clearDeque(minuteEvents, event, ChronoUnit.MINUTES.name());
 
             if (!minuteEvents.isEmpty()) {
                 event = new Event(
@@ -84,15 +82,18 @@ public class EventServiceImpl implements EventService {
         }
     }
 
+    private void clearDeque(ConcurrentLinkedDeque<Event> deque, Event event, String chronoUnit) {
+        while (!deque.isEmpty() &&
+                ChronoUnit.valueOf(chronoUnit).between(deque.getFirst().getTime(), event.getTime()) > 0) {
+            deque.removeFirst();
+        }
+    }
+
     private void addToSellDeque(ZonedDateTime time, ConcurrentLinkedDeque<Event> deque,
                                 String sellChronoUnit, String dequeChronoUnit) {
         Event event = new Event(time, 1L);
         synchronized (deque) {
-            while (!deque.isEmpty() &&
-                    ChronoUnit.valueOf(dequeChronoUnit)
-                            .between(deque.getFirst().getTime(), event.getTime()) > 0) {
-                deque.removeFirst();
-            }
+            clearDeque(deque, event, dequeChronoUnit);
 
             if (!deque.isEmpty()) {
                 Event last = deque.getLast();
@@ -115,5 +116,33 @@ public class EventServiceImpl implements EventService {
         addToMinuteQueue(time);
         addToSellDeque(time, hourEvents, ChronoUnit.SECONDS.name(), ChronoUnit.HOURS.name());
         addToSellDeque(time, dayEvents, ChronoUnit.MINUTES.name(), ChronoUnit.DAYS.name());
+    }
+
+
+    @Scheduled(cron = "0 * * * * *")
+    private void clearMinuteDeque() {
+        Event event = new Event();
+
+        synchronized (minuteEvents) {
+            clearDeque(minuteEvents, event, ChronoUnit.MINUTES.name());
+        }
+    }
+
+    @Scheduled(cron = "0 0 * * * *")
+    private void clearHourDeque() {
+        Event event = new Event();
+
+        synchronized (hourEvents) {
+            clearDeque(hourEvents, event, ChronoUnit.HOURS.name());
+        }
+    }
+
+    @Scheduled(cron = "0 0 0 * * *")
+    private void clearDayDeque() {
+        Event event = new Event();
+
+        synchronized (dayEvents) {
+            clearDeque(dayEvents, event, ChronoUnit.DAYS.name());
+        }
     }
 }
