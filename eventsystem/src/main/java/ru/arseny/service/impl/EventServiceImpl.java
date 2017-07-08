@@ -25,9 +25,8 @@ public class EventServiceImpl implements EventService {
     }
 
 
-    private Long getIntervalFromDeque(ZonedDateTime time, ConcurrentLinkedDeque<Event> deque, String chronoUnit) {
-        if (deque.isEmpty() ||
-                ChronoUnit.valueOf(chronoUnit).between(deque.getLast().getTime(), time) > 0) {
+    private Long getIntervalFromDeque(ZonedDateTime time, ConcurrentLinkedDeque<Event> deque, ChronoUnit chronoUnit) {
+        if (deque.isEmpty() || chronoUnit.between(deque.getLast().getTime(), time) > 0) {
             return 0L;
         }
 
@@ -36,14 +35,14 @@ public class EventServiceImpl implements EventService {
         }
 
         Event first = deque.getFirst();
-        if (ChronoUnit.valueOf(chronoUnit).between(first.getTime(), time) <= 0) {
+        if (chronoUnit.between(first.getTime(), time) <= 0) {
             return deque.getLast().getNumberOfEventsBefore();
         }
 
         Iterator<Event> iterator = deque.iterator();
 
         while (iterator.hasNext() &&
-                ChronoUnit.valueOf(chronoUnit).between(first.getTime(), time) > 0) {
+                chronoUnit.between(first.getTime(), time) > 0) {
             first = iterator.next();
         }
 
@@ -53,52 +52,51 @@ public class EventServiceImpl implements EventService {
 
     @Override
     public Long getNumberOfEventsInOneMinute(ZonedDateTime time) {
-        return getIntervalFromDeque(time, minuteEvents, ChronoUnit.MINUTES.name());
+        return getIntervalFromDeque(time, minuteEvents, ChronoUnit.MINUTES);
     }
 
     @Override
     public Long getNumberOfEventsInOneHour(ZonedDateTime time) {
-        return getIntervalFromDeque(time, hourEvents, ChronoUnit.HOURS.name());
+        return getIntervalFromDeque(time, hourEvents, ChronoUnit.HOURS);
     }
 
     @Override
     public Long getNumberOfEventsInOneDay(ZonedDateTime time) {
-        return getIntervalFromDeque(time, dayEvents, ChronoUnit.DAYS.name());
+        return getIntervalFromDeque(time, dayEvents, ChronoUnit.DAYS);
     }
 
     private void addToMinuteQueue(ZonedDateTime time) {
-        Event event = new Event(time, 1L);
         synchronized (minuteEvents) {
-            clearDeque(minuteEvents, event, ChronoUnit.MINUTES.name());
-
+            clearDeque(minuteEvents, time, ChronoUnit.MINUTES);
+            Event event;
             if (!minuteEvents.isEmpty()) {
                 event = new Event(
                         time,
                         this.minuteEvents.getLast().getNumberOfEventsBefore() + 1
                 );
+            } else  {
+               event = new Event(time, 1L);
             }
 
             minuteEvents.addLast(event);
         }
     }
 
-    private void clearDeque(ConcurrentLinkedDeque<Event> deque, Event event, String chronoUnit) {
-        while (!deque.isEmpty() &&
-                ChronoUnit.valueOf(chronoUnit).between(deque.getFirst().getTime(), event.getTime()) > 0) {
+    private void clearDeque(ConcurrentLinkedDeque<Event> deque, ZonedDateTime time, ChronoUnit chronoUnit) {
+        while (!deque.isEmpty() && chronoUnit.between(deque.getFirst().getTime(), time) > 0) {
             deque.removeFirst();
         }
     }
 
-    private void addToSellDeque(ZonedDateTime time, ConcurrentLinkedDeque<Event> deque,
-                                String sellChronoUnit, String dequeChronoUnit) {
-        Event event = new Event(time, 1L);
+    private void addToCellDeque(ZonedDateTime time, ConcurrentLinkedDeque<Event> deque,
+                                ChronoUnit sellChronoUnit, ChronoUnit dequeChronoUnit) {
         synchronized (deque) {
-            clearDeque(deque, event, dequeChronoUnit);
-
+            clearDeque(deque, time, dequeChronoUnit);
+            Event event = new Event(time, 1L);
             if (!deque.isEmpty()) {
                 Event last = deque.getLast();
 
-                if (ChronoUnit.valueOf(sellChronoUnit).between(last.getTime(), event.getTime()) > 0) {
+                if (sellChronoUnit.between(last.getTime(), event.getTime()) > 0) {
                     deque.addLast(
                             new Event(event.getTime(), last.getNumberOfEventsBefore() + 1)
                     );
@@ -114,35 +112,29 @@ public class EventServiceImpl implements EventService {
     @Override
     public void add(ZonedDateTime time) {
         addToMinuteQueue(time);
-        addToSellDeque(time, hourEvents, ChronoUnit.SECONDS.name(), ChronoUnit.HOURS.name());
-        addToSellDeque(time, dayEvents, ChronoUnit.MINUTES.name(), ChronoUnit.DAYS.name());
+        addToCellDeque(time, hourEvents, ChronoUnit.SECONDS, ChronoUnit.HOURS);
+        addToCellDeque(time, dayEvents, ChronoUnit.MINUTES, ChronoUnit.DAYS);
     }
 
 
     @Scheduled(cron = "0 * * * * *")
     private void clearMinuteDeque() {
-        Event event = new Event();
-
         synchronized (minuteEvents) {
-            clearDeque(minuteEvents, event, ChronoUnit.MINUTES.name());
+            clearDeque(minuteEvents, ZonedDateTime.now(), ChronoUnit.MINUTES);
         }
     }
 
     @Scheduled(cron = "0 0 * * * *")
     private void clearHourDeque() {
-        Event event = new Event();
-
         synchronized (hourEvents) {
-            clearDeque(hourEvents, event, ChronoUnit.HOURS.name());
+            clearDeque(hourEvents, ZonedDateTime.now(), ChronoUnit.HOURS);
         }
     }
 
     @Scheduled(cron = "0 0 0 * * *")
     private void clearDayDeque() {
-        Event event = new Event();
-
         synchronized (dayEvents) {
-            clearDeque(dayEvents, event, ChronoUnit.DAYS.name());
+            clearDeque(dayEvents, ZonedDateTime.now(), ChronoUnit.DAYS);
         }
     }
 }
